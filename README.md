@@ -1,58 +1,126 @@
-# Cloud Run Hello World with Cloud Code
+# Demo App for MCP Toolbox Java SDK 0.1.0 
 
-"Hello World" is a [Cloud Run](https://cloud.google.com/run/docs) application that renders a simple webpage.
+### Cymbal Bus Agent
 
-For details on how to use this sample as a template in Cloud Code, read the documentation for Cloud Code for [VS Code](https://cloud.google.com/code/docs/vscode/quickstart-cloud-run?utm_source=ext&utm_medium=partner&utm_campaign=CDR_kri_gcp_cloudcodereadmes_012521&utm_content=-) or [IntelliJ](https://cloud.google.com/code/docs/intellij/quickstart-cloud-run?utm_source=ext&utm_medium=partner&utm_campaign=CDR_kri_gcp_cloudcodereadmes_012521&utm_content=-).
+##### 1. AlloyDB database and MCP Toolbox for AlloyDB for tools integration.
+##### 2. Cloud Run for Toolbox Deployment and Application (agent deployment).
+##### 3. LangChain4J library for the agent and LLM framework in a Spring Boot Application with Java 17.
 
-### Table of Contents
-* [Getting Started with VS Code](#getting-started-with-vs-code)
-* [Getting Started with IntelliJ](#getting-started-with-intellij)
-* [Sign up for User Research](#sign-up-for-user-research)
+#### AlloyDB Setup
 
----
-## Getting Started with VS Code
+##### Install AlloyDB Cluster and Instance
+Once click setup here:
+``` url
+https://codelabs.developers.google.com/quick-alloydb-setup
+```
 
-### Run the app locally with the Cloud Run Emulator
-1. In the Cloud Code status bar, click on the active project name and select 'Run on Cloud Run Emulator'.  
-![image](./img/status-bar.png)
+##### Extensions
+``` sql
+-- Enable necessary extensions for AI semantic search and embedding generation
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS google_ml_integration;
+```
 
-2. Use the Cloud Run Emulator dialog to specify your [builder option](https://cloud.google.com/code/docs/vscode/deploying-a-cloud-run-app#deploying_a_cloud_run_service). Cloud Code supports Docker, Jib, and Buildpacks. See the skaffold documentation on [builders](https://skaffold.dev/docs/builders/) for more information about build artifact types.  
-![image](./img/build-config.png)
+##### Create Table DDL
 
-3. Click ‘Run’. Cloud Code begins building your image.
+``` sql
+-- Table 1: Transit Policies (Unstructured Data for RAG)
+CREATE TABLE transit_policies (
+    policy_id SERIAL PRIMARY KEY,
+    category VARCHAR(50),
+    policy_text TEXT,
+    policy_embedding vector(768) 
+);
 
-4. View the build progress in the OUTPUT window. Once the build has finished, click on the URL in the OUTPUT window to view your live application.  
-![image](./img/cloud-run-url.png)
+-- Table 2: Intercity Bus Schedules (Structured Data)
+CREATE TABLE bus_schedules (
+    trip_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    origin_city VARCHAR(100),
+    destination_city VARCHAR(100),
+    departure_time TIMESTAMP,
+    arrival_time TIMESTAMP,
+    available_seats INT DEFAULT 50,
+    ticket_price DECIMAL(6,2)
+);
 
-5. To stop the application, click the stop icon on the Debug Toolbar.
+-- Table 3: Booking Ledger (Transactional Action Data)
+CREATE TABLE bookings (
+    booking_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trip_id UUID REFERENCES bus_schedules(trip_id),
+    passenger_id VARCHAR(100),
+    status VARCHAR(20) DEFAULT 'CONFIRMED',
+    booking_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
----
-## Getting Started with IntelliJ
+##### Data Ingestion
 
-### Run the app locally with the Cloud Run Emulator
+``` sql
+-- 1. Insert Unstructured Policies and GENERATE REAL EMBEDDINGS natively in AlloyDB
+INSERT INTO transit_policies (category, policy_text, policy_embedding) 
+VALUES 
+('Pets', 'Service animals are always welcome. Small pets (under 25 lbs) are allowed in secure carriers for a $25 fee. Large dogs are not permitted on standard coaches.', embedding('text-embedding-005', 'Service animals are always welcome. Small pets (under 25 lbs) are allowed in secure carriers for a $25 fee. Large dogs are not permitted on standard coaches.')),
+('Luggage', 'Each passenger is allowed one carry-on (up to 15 lbs) and two stowed bags (up to 50 lbs each) free of charge. Additional bags cost $15 each.', embedding('text-embedding-005', 'Each passenger is allowed one carry-on (up to 15 lbs) and two stowed bags (up to 50 lbs each) free of charge. Additional bags cost $15 each.')),
+('Refunds', 'Tickets are fully refundable up to 24 hours before departure. Within 24 hours, tickets can be exchanged for travel credit only.', embedding('text-embedding-005', 'Tickets are fully refundable up to 24 hours before departure. Within 24 hours, tickets can be exchanged for travel credit only.'));
+```
 
-#### Define run configuration
+```
+-- 2. Generate 200+ Realistic Schedules for the Next 7 Days using generate_series
+INSERT INTO bus_schedules (origin_city, destination_city, departure_time, arrival_time, ticket_price, available_seats)
+SELECT 
+    origin,
+    destination,
+    -- Generate departures every 4 hours starting from tomorrow
+    (CURRENT_DATE + 1) + (interval '4 hours' * seq) AS dep_time,
+    (CURRENT_DATE + 1) + (interval '4 hours' * seq) + interval '4.5 hours' AS arr_time,
+    ROUND((RANDOM() * 30 + 25)::numeric, 2) AS price, -- Random price between $25 and $55
+    FLOOR(RANDOM() * 50 + 1) AS seats -- Random seats between 1 and 50
+FROM 
+    (VALUES 
+        ('New York', 'Boston'), ('Boston', 'New York'),
+        ('Philadelphia', 'Washington DC'), ('Washington DC', 'Philadelphia'),
+        ('Seattle', 'Portland'), ('Portland', 'Seattle')
+    ) AS routes(origin, destination)
+CROSS JOIN generate_series(1, 40) AS seq; -- 6 routes * 40 time slots = 240 distinct trips ingested!
+```
 
-1. Click the Run/Debug configurations dropdown on the top taskbar and select 'Edit Configurations'.  
-![image](./img/edit-config.png)
+#### Tools.yaml
+Check repo for file
 
-2. Select 'Cloud Run: Run Locally' and specify your [builder option](https://cloud.google.com/code/docs/intellij/developing-a-cloud-run-app#defining_your_run_configuration). Cloud Code supports Docker, Jib, and Buildpacks. See the skaffold documentation on [builders](https://skaffold.dev/docs/builders/) for more information about build artifact types.  
-![image](./img/local-build-config.png)
+#### Install Toolbox
 
-#### Run the application
-1. Click the Run/Debug configurations dropdown and select 'Cloud Run: Run Locally'. Click the run icon.  
-![image](./img/config-run-locally.png)
+``` bash
+# see releases page for other versions
+export VERSION=0.27.0
+curl -L -o toolbox https://storage.googleapis.com/genai-toolbox/v$VERSION/linux/amd64/toolbox
+chmod +x toolbox
+```
 
-2. View the build process in the output window. Once the build has finished, you will receive a notification from the Event Log. Click 'View' to access the local URLs for your deployed services.  
-![image](./img/local-success.png)
+#### Deploy Toolbox to Cloud Run
+Follow all the steps in the documentation. Including the authentication part. This is critical.
+``` url
+https://googleapis.github.io/genai-toolbox/how-to/deploy_toolbox/
+```
 
----
-## Sign up for User Research
+#### Clone this repo
+Replace your environment variables locally in the controller class and run it locally. To run locally:
+``` bash
+mvn clean install -U
+```
+and
 
-We want to hear your feedback!
+``` bash
+mvn sprint-boot:run
+```
 
-The Cloud Code team is inviting our user community to sign-up to participate in Google User Experience Research. 
+or 
 
-If you’re invited to join a study, you may try out a new product or tell us what you think about the products you use every day. At this time, Google is only sending invitations for upcoming remote studies. Once a study is complete, you’ll receive a token of thanks for your participation such as a gift card or some Google swag. 
+To directly deploy your agent to Cloud Run and test there:
 
-[Sign up using this link](https://google.qualtrics.com/jfe/form/SV_4Me7SiMewdvVYhL?reserved=1&utm_source=In-product&Q_Language=en&utm_medium=own_prd&utm_campaign=Q1&productTag=clou&campaignDate=January2021&referral_code=UXbT481079) and answer a few questions about yourself, as this will help our research team match you to studies that are a great fit.
+``` bash
+gcloud run deploy cymbal-transit --source . --set-env-vars GCP_PROJECT_ID=<<YOUR_PROJECT_ID>>,GCP_REGION=us-central1,GEMINI_MODEL_NAME=gemini-2.5-flash,MCP_TOOLBOX_URL=<<YOUR_MCP_TOOLBOX_URL>> --allow-unauthenticated
+```
+Replace the placeholder variables enclosed within <<>>.
+
+
+
