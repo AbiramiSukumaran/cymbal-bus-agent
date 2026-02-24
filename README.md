@@ -85,7 +85,8 @@ CROSS JOIN generate_series(1, 40) AS seq; -- 6 routes * 40 time slots = 240 dist
 ```
 
 #### Tools.yaml
-Check repo for file
+Check repo for file. 
+Replace the placeholders enclosed within "<<>>" with your values in Tools.yaml file.
 
 #### Install Toolbox
 
