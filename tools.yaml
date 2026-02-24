@@ -1,19 +1,19 @@
 sources:
     alloydb:
         kind: "alloydb-postgres"
-        project: "abis-345004"
+        project: "<<>>"
         region: "us-central1"
-        cluster: "vector-cluster"
-        instance: "vector-instance"
+        cluster: "<<>>"
+        instance: "<<>>"
         database: "postgres"
         user: "postgres"
-        password: "alloydb"
+        password: "<<>>"
 
 authServices:
     google_auth:
       kind: google
       # The client ID that issues the tokens (e.g., your Cloud Run service account or OAuth client)
-      clientId: "https://toolbox-cymbal-transit-uxu5wi2jpa-uc.a.run.app"
+      clientId: "<<>>"
 
 tools:
 
